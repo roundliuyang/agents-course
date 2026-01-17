@@ -44,56 +44,69 @@ def parse_arguments():
     return parser.parse_args()
 
 
+# 此函数作为 step_callback 传递给智能体，因为它在智能体执行的每一步结束时被触发。这使得智能体能够在整个过程中动态捕获和存储屏幕截图
 def save_screenshot(memory_step: ActionStep, agent: CodeAgent) -> None:
-    sleep(1.0)  # Let JavaScript animations happen before taking the screenshot
-    driver = helium.get_driver()
-    current_step = memory_step.step_number
-    if driver is not None:
+    sleep(1.0)   # 等待1秒，确保JavaScript动画完成后再截图
+    driver = helium.get_driver()  # 获取当前浏览器驱动
+    current_step = memory_step.step_number  # 获取当前浏览器驱动
+    if driver is not None:    # 检查驱动是否存在
+        # 遍历智能体记忆步骤，清理过旧的截图以节省内存
         for previous_memory_step in agent.memory.steps:  # Remove previous screenshots from logs for lean processing
+            # 移除两步之前的截图，保持内存使用效率
             if isinstance(previous_memory_step, ActionStep) and previous_memory_step.step_number <= current_step - 2:
-                previous_memory_step.observations_images = None
-        png_bytes = driver.get_screenshot_as_png()
-        image = Image.open(BytesIO(png_bytes))
+                previous_memory_step.observations_images = None   # 清空旧截图
+        png_bytes = driver.get_screenshot_as_png()    # 获取浏览器截图的字节数据
+        image = Image.open(BytesIO(png_bytes))   # 将字节数据转换为图像对象
         print(f"Captured a browser screenshot: {image.size} pixels")
+        # 创建图像副本并存储到当前步骤的观察图像列表中（重要：创建副本确保持久性）
         memory_step.observations_images = [image.copy()]  # Create a copy to ensure it persists, important!
 
-    # Update observations with current URL
+    # 使用当前URL更新观察信息
     url_info = f"Current url: {driver.current_url}"
+    # 如果观察信息为空则直接赋值，否则追加到现有信息末尾
     memory_step.observations = (
         url_info if memory_step.observations is None else memory_step.observations + "\n" + url_info
     )
     return
 
-
+# 定义一个工具函数，用于在页面上搜索指定文本并定位到第n个匹配项
 @tool
 def search_item_ctrl_f(text: str, nth_result: int = 1) -> str:
     """
-    Searches for text on the current page via Ctrl + F and jumps to the nth occurrence.
+    通过XPath在当前页面搜索文本，模拟Ctrl+F功能并跳转到第n个匹配项
     Args:
-        text: The text to search for
-        nth_result: Which occurrence to jump to (default: 1)
+        text: 要搜索的文本内容
+        nth_result: 要跳转到的匹配项序号（默认为第1个）
     """
+    # 使用XPath查找包含指定文本的所有元素
     elements = driver.find_elements(By.XPATH, f"//*[contains(text(), '{text}')]")
+    # 检查请求的匹配项序号是否存在
     if nth_result > len(elements):
         raise Exception(f"Match n°{nth_result} not found (only {len(elements)} matches found)")
+    # 构造找到匹配项的结果信息
     result = f"Found {len(elements)} matches for '{text}'."
+    # 获取指定序号的元素（数组索引从0开始所以减1）
     elem = elements[nth_result - 1]
+    # 执行JavaScript使目标元素滚动到视窗可见区域
     driver.execute_script("arguments[0].scrollIntoView(true);", elem)
+    # 更新结果信息，说明已定位到哪个元素
     result += f"Focused on element {nth_result} of {len(elements)}"
     return result
 
-
+# 定义返回上一页的工具函数
 @tool
 def go_back() -> None:
-    """Goes back to previous page."""
+    """浏览器后退功能，返回到上一个页面"""
     driver.back()
 
-
+# 定义关闭弹窗的工具函数
 @tool
 def close_popups() -> str:
     """
-    Closes any visible modal or pop-up on the page. Use this to dismiss pop-up windows! This does not work on cookie consent banners.
+    关闭页面上可见的模态框或弹出窗口
+    注意：此功能不适用于cookie同意横幅
     """
+    # 通过发送ESC按键来关闭弹窗
     webdriver.ActionChains(driver).send_keys(Keys.ESCAPE).perform()
 
 
